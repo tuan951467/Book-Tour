@@ -11,7 +11,6 @@ router.get(
   tourController.aliasTopTours,
   tourController.getAllTours
 );
-router.get('/:id', tourController.getTour);
 router.get('/tour-stats', tourController.getTourStats);
 
 router.get(
@@ -30,7 +29,8 @@ router.get(
 
 router.get('/distances/:latlng/unit/:unit', tourController.getDistances);
 
-router.get('/', authController.protect, tourController.getAllTours);
+router.get('/', tourController.getAllTours);
+router.get('/:id', tourController.getTour);
 
 router.post(
   '/',
@@ -43,6 +43,8 @@ router.put(
   '/:id',
   authController.protect,
   authController.restrictTo('admin', 'lead-guide'),
+  tourController.uploadTourImages,
+  tourController.resizeTourImages,
   tourController.updateTour
 );
 

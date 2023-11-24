@@ -2,9 +2,9 @@ const { promisify } = require('util');
 const User = require('../models/user.model');
 const catchAsync = require('../utils/catchAsync');
 const jwt = require('jsonwebtoken');
-const sendEmail = require('../utils/email');
 const crypto = require('crypto');
 const AppError = require('../utils/appError');
+const Email = require('../utils/email');
 
 const signToken = (id) => {
   const token = jwt.sign({ id: id }, process.env.JWT_SECRET, {
@@ -31,18 +31,14 @@ const createSendToken = (user, statusCode, res) => {
   res.status(statusCode).json({ status: 'success', token, data: { user } });
 };
 
-// const createSendToken = (user, statusCode, res) => {
-//   const token =
-// }
 // POST api/v1/users/signup
 exports.signup = catchAsync(async (req, res, next) => {
-  //   const newUser = await User.create({
-  //     name: req.body.name,
-  //     email: req.body.email,
-  //     password: req.body.password,
-  //     passwordConfirm: req.body.passwordConfirm,
-  //   })
-  const newUser = await User.create(req.body);
+  const newUser = await User.create({
+    name: req.body.name,
+    email: req.body.email,
+    password: req.body.password,
+    passwordConfirm: req.body.passwordConfirm,
+  });
 
   createSendToken(newUser, 200, res);
 });
@@ -61,6 +57,14 @@ exports.login = catchAsync(async (req, res, next) => {
 
   createSendToken(user, 200, res);
 });
+
+exports.logout = (req, res) => {
+  res.cookie('jwt', 'logout', {
+    expires: new Date(Date.now() + 10 * 1000),
+    httpOnly: true,
+  });
+  res.status(200).json({ status: 'success' });
+};
 
 // PATCH api/v1/users/reset-password
 exports.resetPassword = catchAsync(async (req, res, next) => {
@@ -104,6 +108,7 @@ exports.updatePassword = catchAsync(async (req, res, next) => {
     user,
   });
 });
+
 // POST api/v1/users/forgot-password
 exports.forgotPassword = catchAsync(async (req, res, next) => {
   const user = await User.findOne({ email: req.body.email });
@@ -112,26 +117,20 @@ exports.forgotPassword = catchAsync(async (req, res, next) => {
   }
 
   const resetToken = user.createPasswordResetToken();
-  const resetUrl = `${req.protocol}://${req.get(
-    'host'
-  )}/api/v1/users/forgot-password/${resetToken}`;
-
   await user.save({ validateBeforeSave: false });
 
-  const message = `Forgot your password. Submit a patch request with your new password and password confirm to ${resetUrl}\n If you didn't forget your password, please ignore this email`;
-
   try {
-    await sendEmail({
-      email: user.email,
-      subject: 'Your password reset token valid for 10 min',
-      message,
-    });
+    const resetUrl = `${req.protocol}://${req.get(
+      'host'
+    )}/api/v1/users/forgot-password/${resetToken}`;
+    await new Email(user, resetUrl).sendPasswordReset();
 
     res.status(200).json({ status: 'success', message: 'Token sent to email' });
   } catch (error) {
     user.passwordResetToken = undefined;
     user.passwordResetExpires = undefined;
     await user.save({ validateBeforeSave: false });
+
     return next(
       new AppError('There was an error sending email. Try again later', 500)
     );
@@ -145,6 +144,8 @@ exports.protect = catchAsync(async (req, res, next) => {
     req.headers.authorization.startsWith('Bearer')
   ) {
     token = req.headers.authorization.split(' ')[1];
+  } else if (req.cookies.jwt) {
+    token = req.cookies.jwt;
   }
 
   if (!token)
@@ -166,6 +167,7 @@ exports.protect = catchAsync(async (req, res, next) => {
       )
     );
   req.user = currentUser;
+  res.locals.user = currentUser;
   next();
 });
 
@@ -178,4 +180,37 @@ exports.restrictTo = (...roles) => {
     }
     next();
   };
+};
+
+// Only for rendered pages, no errors!
+exports.isLoggedIn = async (req, res, next) => {
+  if (req.cookies.jwt) {
+    try {
+      // 1) verify token
+      const decoded = await promisify(jwt.verify)(
+        req.cookies.jwt,
+        process.env.JWT_SECRET
+      );
+
+      // 2) Check if user still exists
+      const currentUser = await User.findById(decoded.id);
+      if (!currentUser) {
+        return next();
+      }
+
+      // 3) Check if user changed password after the token was issued
+      if (currentUser.changedPasswordAfter(decoded.iat)) {
+        return next();
+      }
+
+      console.log(currentUser);
+      console.error(currentUser);
+      // THERE IS A LOGGED IN USER
+      res.locals.user = currentUser;
+      return next();
+    } catch (err) {
+      return next();
+    }
+  }
+  next();
 };

@@ -1,2 +1,8 @@
 node_modules
 .env
+data
+dev-data
+public/css
+public/js
+public/overview.html
+public/tour.html

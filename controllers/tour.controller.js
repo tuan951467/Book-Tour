@@ -1,6 +1,58 @@
 const Tour = require('../models/tour.model');
 const catchAsync = require('../utils/catchAsync');
 const factory = require('../utils/handlerFactory');
+const multer = require('multer');
+const sharp = require('sharp');
+
+const storage = multer.memoryStorage();
+
+const fileFilter = (req, file, cb) => {
+  if (file.mimetype.startsWith('image')) {
+    // To accept the file pass `true`, like so:
+    cb(null, true);
+  } else {
+    // You can always pass an error if something goes wrong:
+    cb(new AppError('Not an image. Please upload only images', 400), false);
+  }
+};
+const upload = multer({ storage: storage, fileFilter: fileFilter });
+
+exports.uploadTourImages = upload.fields([
+  { name: 'imageCover', maxCount: 1 },
+  { name: 'images', maxCount: 3 },
+]);
+
+exports.resizeTourImages = catchAsync(async (req, res, next) => {
+  console.log(req.files);
+
+  if (!req.files.imageCover || !req.files.images) return next();
+
+  req.body.imageCover = `tour-${req.params.id}-${Date.now()}-cover.jpeg`;
+
+  // 1) Cover Image
+  await sharp(req.files.imageCover[0].buffer)
+    .resize(2000, 1300)
+    .toFormat('jpeg')
+    .jpeg({ quality: 90 })
+    .toFile(`public/img/tours/${req.body.imageCover}`);
+
+  // 2) Images
+  req.body.images = [];
+  await Promise.all(
+    req.files.images.map(async (file, i) => {
+      const filename = `tour-${req.params.id}-${Date.now()}-${i + 1}.jpeg`;
+
+      await sharp(file.buffer)
+        .resize(2000, 1333)
+        .toFormat('jpeg')
+        .jpeg({ quality: 90 })
+        .toFile(`public/img/tours/${filename}`);
+
+      req.body.images.push(filename);
+    })
+  );
+  next();
+});
 
 // GET api/v1/tours
 exports.getAllTours = factory.getAll(Tour);

@@ -1,4 +1,4 @@
-const mongoose = require('mongoose')
+const mongoose = require('mongoose');
 
 const bookingSchema = new mongoose.Schema({
   tour: {
@@ -23,16 +23,14 @@ const bookingSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
-})
+});
 
 bookingSchema.pre(/^find/, function (next) {
   this.populate('user').populate({
     path: 'tour',
     select: 'name',
-  })
-  next()
-})
+  });
+  next();
+});
 
-const Booking = mongoose.model('Booking', bookingSchema)
-
-module.exports = Booking
+module.exports = mongoose.model('Booking', bookingSchema);
